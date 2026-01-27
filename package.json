@@ -1,0 +1,20 @@
+{
+  "name": "gateflow-iot-bridge",
+  "version": "1.0.0",
+  "description": "MQTT Bridge - TTN vers Gateflow Laravel",
+  "main": "bridge-to-laravel.js",
+  "scripts": {
+    "start": "node bridge-to-laravel.js",
+    "dev": "node bridge-to-laravel.js"
+  },
+  "keywords": ["mqtt", "ttn", "gateflow", "iot"],
+  "author": "GateFlow Team",
+  "license": "MIT",
+  "dependencies": {
+    "mqtt": "^5.14.1",
+    "dotenv": "^16.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
