@@ -1,8 +1,8 @@
 /**
- * MQTT Bridge - TTN vers Gateflow Laravel
+ * MQTT Bridge - ChirpStack / TTN vers Gateflow Laravel.
  *
- * Ce script fait le pont entre The Things Network et l'application Laravel.
- * VERSION PRODUCTION READY
+ * En mode ChirpStack, le payload MQTT est transmis tel quel au webhook Laravel
+ * avec le parametre event extrait du topic.
  */
 
 require('dotenv').config();
@@ -17,21 +17,27 @@ const https = require('https');
 // Validation des variables d'environnement
 if (!process.env.MQTT_BROKER_HOST || !process.env.LARAVEL_HOST) {
     console.error('ERREUR: Variables d\'environnement manquantes.');
-    console.error('Veuillez configurer MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD, LARAVEL_HOST, IOT_WEBHOOK_SECRET');
+    console.error('Veuillez configurer MQTT_BROKER_HOST, LARAVEL_HOST et IOT_WEBHOOK_SECRET');
     process.exit(1);
 }
 
+const payloadFormat = (process.env.MQTT_PAYLOAD_FORMAT || 'chirpstack').toLowerCase();
+const isChirpStackMode = payloadFormat === 'chirpstack';
+
 const mqttConfig = {
-  host: process.env.MQTT_BROKER_HOST || 'eu1.cloud.thethings.network',
+  host: process.env.MQTT_BROKER_HOST || '127.0.0.1',
   port: process.env.MQTT_BROKER_PORT || 1883,
-  username: process.env.MQTT_USERNAME,
-  password: process.env.MQTT_PASSWORD,
+  username: process.env.MQTT_USERNAME || undefined,
+  password: process.env.MQTT_PASSWORD || undefined,
   protocol: 'mqtt',
-  clientId: `gateflow-bridge-${Math.random().toString(16).substr(2, 8)}`,
+  clientId: `gateflow-bridge-${payloadFormat}-${Math.random().toString(16).substr(2, 8)}`,
 };
 
-// Topic TTN a ecouter
-const topic = process.env.MQTT_TOPIC_SUBSCRIBE || 'v3/+/devices/+/up';
+// ChirpStack v4: application/{application_id}/device/{dev_eui}/event/{event}
+// TTN historique: v3/{app-id}/devices/{device-id}/up
+const topic = process.env.MQTT_TOPIC_SUBSCRIBE || (
+  isChirpStackMode ? 'application/+/device/+/event/up' : 'v3/+/devices/+/up'
+);
 
 // Configuration Laravel API
 const laravelConfig = {
@@ -55,22 +61,67 @@ let lastMessageTime = null;
 /**
  * Envoie un message a l'API Laravel
  */
-function sendToLaravel(payload) {
+function extractChirpStackEvent(topicName) {
+  const match = topicName.match(/\/event\/([^/]+)$/);
+
+  return match ? match[1] : 'up';
+}
+
+function laravelPathFor(topicName) {
+  if (!isChirpStackMode) {
+    return laravelConfig.endpoint;
+  }
+
+  const event = encodeURIComponent(extractChirpStackEvent(topicName));
+  const separator = laravelConfig.endpoint.includes('?') ? '&' : '?';
+
+  return `${laravelConfig.endpoint}${separator}event=${event}`;
+}
+
+function deviceIdForLog(message) {
+  return message.deviceInfo?.devEui
+    || message.deviceInfo?.deviceName
+    || message.end_device_ids?.dev_eui
+    || 'unknown';
+}
+
+function toLaravelPayload(receivedTopic, message) {
+  if (isChirpStackMode) {
+    return {
+      ...message,
+      bridge_metadata: {
+        bridge_type: 'node-mqtt-bridge-chirpstack',
+        mqtt_topic: receivedTopic,
+        received_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  return {
+    topic: receivedTopic,
+    raw_message: message,
+    bridge_metadata: {
+      bridge_type: 'node-mqtt-bridge-ttn',
+      received_at: new Date().toISOString(),
+    },
+  };
+}
+
+function sendToLaravel(payload, receivedTopic) {
   const data = JSON.stringify(payload);
 
   const options = {
     hostname: laravelConfig.host,
     port: laravelConfig.port,
-    path: laravelConfig.endpoint,
+    path: laravelPathFor(receivedTopic),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(data),
       'X-IoT-Bridge': 'node-mqtt',
-      // SECUTITY: Envoi du token secret
       'X-IoT-Secret': laravelConfig.secret
     },
-    rejectUnauthorized: false, // Utile si certificats auto-signes, a mettre a true en prod stricte
+    rejectUnauthorized: process.env.LARAVEL_REJECT_UNAUTHORIZED !== 'false',
   };
 
   const protocol = laravelConfig.protocol === 'https' ? https : http;
@@ -78,7 +129,7 @@ function sendToLaravel(payload) {
   const req = protocol.request(options, (res) => {
     // On ne loggue que les erreurs ou 1 statut sur 10 pour eviter le spam logs
     if (res.statusCode < 200 || res.statusCode >= 300) {
-        console.error(`[Laravel] ERREUR ${res.statusCode}`);
+        console.error(`[Laravel] ERREUR ${res.statusCode} sur ${options.path}`);
     } else if (messageCount % 10 === 0) {
         // console.log(`[Laravel] OK (202 Accepted)`);
     }
@@ -104,7 +155,9 @@ function showStats() {
 // ==============================
 
 console.log('--- GATEFLOW BRIDGE DEMARRE ---');
-console.log(`MQTT: ${mqttConfig.host}`);
+console.log(`Mode: ${payloadFormat}`);
+console.log(`MQTT: ${mqttConfig.host}:${mqttConfig.port}`);
+console.log(`Topic: ${topic}`);
 console.log(`API: ${laravelConfig.protocol}://${laravelConfig.host}`);
 
 const client = mqtt.connect(mqttConfig);
@@ -124,20 +177,12 @@ client.on('message', (receivedTopic, payload) => {
   try {
     const message = JSON.parse(payload.toString());
 
-    // Log leger
-    const devEui = message.end_device_ids?.dev_eui || 'unknown';
+    const devEui = deviceIdForLog(message);
     console.log(`[IoT] Msg #${messageCount} de ${devEui}`);
 
-    const laravelPayload = {
-      topic: receivedTopic,
-      raw_message: message,
-      bridge_metadata: {
-        bridge_type: 'node-mqtt-bridge-prod',
-        received_at: new Date().toISOString(),
-      },
-    };
+    const laravelPayload = toLaravelPayload(receivedTopic, message);
 
-    sendToLaravel(laravelPayload);
+    sendToLaravel(laravelPayload, receivedTopic);
 
   } catch (error) {
     console.error('[ERROR] Parsing JSON MQTT:', error.message);
