@@ -1,18 +1,26 @@
 {
   "name": "gateflow-iot-bridge",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MQTT Bridge - ChirpStack / TTN vers Gateflow Laravel",
   "main": "bridge-to-laravel.js",
   "scripts": {
     "start": "node bridge-to-laravel.js",
-    "dev": "node bridge-to-laravel.js"
+    "dev": "node bridge-to-laravel.js",
+    "test": "node --test"
   },
-  "keywords": ["mqtt", "chirpstack", "ttn", "gateflow", "iot"],
+  "keywords": [
+    "mqtt",
+    "chirpstack",
+    "ttn",
+    "gateflow",
+    "iot"
+  ],
   "author": "GateFlow Team",
   "license": "MIT",
   "dependencies": {
+    "dotenv": "^16.0.3",
     "mqtt": "^5.14.1",
-    "dotenv": "^16.0.3"
+    "protobufjs": "^8.8.0"
   },
   "engines": {
     "node": ">=18.0.0"
