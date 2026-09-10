@@ -1,0 +1,16 @@
+[Unit]
+Description=Contrôle indépendant du bridge et de la supervision SODECI
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=forge
+WorkingDirectory=/home/forge/sodeci-iot-bridge
+EnvironmentFile=/home/forge/sodeci-iot-bridge/.env
+ExecStart=/usr/bin/node /home/forge/sodeci-iot-bridge/ops/healthcheck.js
+TimeoutStartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
