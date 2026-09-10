@@ -1,0 +1,11 @@
+[Unit]
+Description=Vérification périodique du flux IoT SODECI
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=5
+Unit=sodeci-iot-healthcheck.service
+
+[Install]
+WantedBy=timers.target

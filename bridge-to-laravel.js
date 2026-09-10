@@ -4,6 +4,7 @@ const path = require('node:path');
 const { Spool } = require('./src/spool');
 const { envelope } = require('./src/envelope');
 const { deliver, drain } = require('./src/transport');
+const { writeHealth } = require('./src/health');
 
 function start(env = process.env) {
   for (const key of ['MQTT_BROKER_HOST', 'LARAVEL_HOST', 'IOT_WEBHOOK_SECRET', 'MQTT_CLIENT_ID']) {
@@ -22,12 +23,24 @@ function start(env = process.env) {
     protocol: env.MQTT_PROTOCOL || 'mqtt', username: env.MQTT_USERNAME || undefined,
     password: env.MQTT_PASSWORD || undefined, clientId, clean: false, reconnectPeriod: 2000,
   });
-  client.on('connect', () => client.subscribe(topics, { qos: 1 }, error => {
-    if (error) console.error('Abonnement MQTT refusé');
-  }));
+  let subscribed = false;
+  client.on('connect', () => {
+    subscribed = false;
+    client.subscribe(topics, { qos: 1 }, (error, granted) => {
+      subscribed = !error && Array.isArray(granted) && topics.every(topic => granted.some(item => item.topic === topic && item.qos < 128));
+      if (!subscribed) console.error('Abonnement MQTT refusé');
+    });
+  });
+  client.on('close', () => { subscribed = false; });
   client.on('error', () => console.error('Erreur de transport MQTT'));
   let stopping = false;
   let draining = false;
+  function health() {
+    try { writeHealth(spool.directory, { connected: client.connected, subscribed, stopping, max_bytes: spool.maxBytes, ...spool.stats() }); }
+    catch { console.error('Écriture de la sonde de santé impossible'); }
+  }
+  health();
+  const healthTimer = setInterval(health, 15000);
   client.handleMessage = (packet, callback) => {
     try { spool.put(packet.topic, packet.payload); callback(); }
     catch (error) {
@@ -54,7 +67,7 @@ function start(env = process.env) {
   const stats = setInterval(() => console.log(JSON.stringify({ service: 'iot-bridge', clientId, connected: client.connected, ...spool.stats() })), 60000);
   async function stop() {
     if (stopping) return;
-    stopping = true; clearInterval(timer); clearInterval(stats);
+    stopping = true; clearInterval(timer); clearInterval(stats); clearInterval(healthTimer); health();
     await client.endAsync();
     while (draining) await new Promise(resolve => setTimeout(resolve, 100));
     spool.close();
