@@ -87,4 +87,3 @@ test('rapport de balises et erreurs de longueur explicites', () => {
   assert.equal(decodeUplink({ bytes: [0x85, 1] }).data.event_type, 'decode_error');
   assert.equal(decodeUplink({ bytes: [0x21] }).data.event_type, 'decode_error');
 });
-
