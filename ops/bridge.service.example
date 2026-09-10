@@ -1,0 +1,19 @@
+[Unit]
+Description=Livraison durable des événements IoT SODECI
+After=network-online.target mosquitto.service
+
+[Service]
+Type=simple
+User=forge
+WorkingDirectory=/home/forge/sodeci-iot-bridge
+EnvironmentFile=/home/forge/sodeci-iot-bridge/.env
+ExecStart=/usr/bin/node /home/forge/sodeci-iot-bridge/bridge-to-laravel.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

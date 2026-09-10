@@ -1,0 +1,11 @@
+# Instance dédiée aux files. Exemple à appliquer après choix des budgets et sauvegardes.
+bind 127.0.0.1 ::1
+protected-mode yes
+port 6380
+appendonly yes
+appendfsync everysec
+maxmemory 512mb
+maxmemory-policy noeviction
+save 900 1
+save 300 10
+dir /var/lib/redis-gateflow-queues
